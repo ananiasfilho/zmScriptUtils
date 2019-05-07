@@ -1,5 +1,12 @@
 #! /bin/bash -x
-
+##################################################################################
+# Creator: @anahuac kyahosting.com.br
+# Maintainer: @ananiasfilho kmee.com.br
+#
+# Version: 0.0.3
+# License: GNU General Public License v3.0
+# https://github.com/ananiasfilho/zm-fix-zpush-lets/blob/master/LICENSE 
+##################################################################################
 whereis_templates="/opt/zimbra/conf/nginx/templates"
 
 if [ -z $1 ] ; then
