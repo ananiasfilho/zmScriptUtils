@@ -1,0 +1,482 @@
+#! /bin/bash  
+
+# fev 2015
+
+VERSION="0.0.18"
+
+MYDIR=`dirname $0`
+
+ZM_ADMIN_ATTRS="accountListView aliasListView configureQuota domainListView DLListView domainAdminRights domainAdminDomainRights domainAdminDistributionListRights zimbraIsDelegatedAdminAccount zimbraDomainAdminMaxMailQuota"
+
+usage() {
+  start_colors
+  clear
+  echo ""
+  echo ""
+  echo "$0 domain account@domain [attr1 value1 [attr2 value2...]]"
+  echo ""
+  echo "-aa [account]	Create an account to be used as admin"
+  echo "-h		This very message"
+  echo "-ld		List domains"
+  echo "-lu [domain]	List domain users"
+  echo "-lr [domain]	List domain rights"
+  echo "-lur [account]	List domain rights"
+  echo "-v		Version"
+  echo ""
+  echo "* <domain> admin for this domain"
+  echo "* <name@domain> is the account. It will be created if not exists"
+  echo "* attrN is about the privileges to be given, as follows: "
+  echo ""
+  echo -e "\tATTR"
+  echo -e "\t---------------------------------------"
+
+  for EACH in $ZM_ADMIN_ATTRS ; do
+	if [ "$EACH" = "zimbraDomainAdminMaxMailQuota" ] ; then
+		echo -e "\t${txtylw}$EACH${txtrst} [ size Mb|- ]"
+	else
+		echo -e "\t${txtylw}$EACH${txtrst} [ +|- ]"
+	fi
+  done
+
+  echo -e "\t${txtylw}admin${txtrst} [ +|- ]"
+  echo -e "\t${txtylw}all${txtrst} [ +|- ]"
+  echo ""
+  echo ""
+  echo "   i.e.: zadmin kyahosting.com admin@kyahosting.com domainAdminRights + configureQuota +"
+  echo ""
+  echo ""
+  echo "* Help: zadmin help [attribute]"
+  echo ""
+}
+
+zmhelp() {
+	start_colors
+	clear
+  	echo ""
+  	echo ""
+  	echo "zadmin help interface"
+  	echo ""
+	case $H_OPTION in
+		accountListView|aliasListView|configureQuota|createAccount|deleteAccount|displayName|listAccount|listAlias|listDomain|renameAccount|setAccountPassword|zimbraIsDelegatedAdminAccount|zimbraPasswordMustChange)
+			echo -e "\tATTR: ${txtylw}$H_OPTION${txtrst}"
+			echo ""
+			echo -e "\t\tSelf Explained"
+			echo ""
+			echo ""
+		;;
+		cartBlancheUI)
+			echo -e "\t${txtylw}$H_OPTION${txtrst}"
+			echo ""
+			echo ""
+		;;
+		DLListView)
+			echo -e "\t${txtylw}$H_OPTION${txtrst}"
+			echo ""
+			echo ""
+		;;
+		zimbraAccountStatus)
+			echo -e "\t${txtylw}$H_OPTION${txtrst}"
+			echo ""
+			echo -e "\t\tAllow domain admin to enable or disable acounts"
+			echo ""
+			echo ""
+		;;
+		zimbraDomainAdminMaxMailQuota)
+			echo -e "\t${txtylw}$H_OPTION${txtrst}"
+			echo ""
+			echo -e "\t\tDefine the quota limit that admin account can set"
+			echo ""
+			echo ""
+		;;
+		sn)
+			echo -e "\t${txtylw}$H_OPTION${txtrst}"
+			echo ""
+			echo -e "\t\tAllow domain admin to set account name"
+			echo ""
+			echo ""
+		;;
+		all)
+			echo -e "\t${txtylw}$H_OPTION${txtrst}"
+			echo ""
+			echo -e "\t\tAdd|Del all atrributes to admin account"
+			echo ""
+			echo ""
+		;;
+	esac
+}
+
+start_colors(){
+	txtred=$(tput setaf 1) # Red
+	txtgrn=$(tput setaf 2) # Green
+	txtylw=$(tput setaf 3) # Yellow
+	txtblu=$(tput setaf 4) # Blue
+	txtpur=$(tput setaf 5) # Purple
+	txtcyn=$(tput setaf 6) # Cyan
+	txtwht=$(tput setaf 7) # White
+	txtrst=$(tput sgr0) # Text reset
+}
+
+# $ZM_DOM $ZM_USER $ZM_ATTRS
+dealAttrs() {
+
+	ZM_COMM="zmprov"
+	#ZM_ATTRS=`echo $ZM_ATTRS | cut -d" " -f3-`
+	ZM_ATTRS="$ZM_ATTRS"
+	ZM_ATTRS_ARRAY=( $ZM_ATTRS )
+	ZM_ATTRS_COUNT=`echo ${#ZM_ATTRS_ARRAY[*]}`
+
+	# Creating admin account
+	add_admin
+
+	# Gain text colors
+	start_colors
+
+	# Check if attributes are odd
+	attrs_is_odd
+
+	# Validating attributes
+	attrs_validate
+
+	# Add all privileges
+	if [ "${ZM_ATTRS_ARRAY[0]}" = "all" ] && [ "${ZM_ATTRS_ARRAY[1]}" = "+" ] ; then
+		attrs_to_add_all
+	fi
+
+	# Add one attribute
+	if [ "${ZM_ATTRS_ARRAY[0]}" != "all" ] && [ "${ZM_ATTRS_ARRAY[1]}" = "+" ] ; then
+		attrs_to_add
+	fi
+
+	# Remove all privileges
+	if [ "${ZM_ATTRS_ARRAY[0]}" = "all" ] && [ "${ZM_ATTRS_ARRAY[1]}" = "-" ] ; then
+		attrs_to_del_all
+	fi
+
+	# Remove one attribute
+	if [ "${ZM_ATTRS_ARRAY[0]}" != "all" ] && [ "${ZM_ATTRS_ARRAY[1]}" = "-" ] ; then
+		ATTR_TO_DEL="${ZM_ATTRS_ARRAY[0]}"
+		attrs_to_del
+	fi
+
+
+}
+
+attrs_validate(){
+
+	ZM_ADMIN_ATTRS_PLUS="$ZM_ADMIN_ATTRS admin all"
+
+	# Test if given attrs are in the list, if anyone is not, abort
+	I="1"
+	for EACH in $ZM_ATTRS ; do
+		if [ $(($I % 2)) -ne 0 ] ; then
+			TEST=`echo $ZM_ADMIN_ATTRS_PLUS | egrep -w "$EACH"`
+			if [ -z "$TEST" ] ; then
+				echo ""
+				echo "${txtred}ERROR${txtrst} - Attribute not valid -> ${txtred}$EACH${txtrst}"
+				echo ""
+				exit 1
+			fi
+
+			ATTR_ARG=${ZM_ATTRS_ARRAY[$I]}
+			# Test if the argument is + or -. Except to zimbraDomainAdminMaxMailQuota - numeric
+			if [ "$EACH" = "zimbraDomainAdminMaxMailQuota" ] ; then
+				I=`expr $I + 1`
+				if [ ! `echo ${ZM_ATTRS_ARRAY[$I]} | grep "^[ [:digit:] ]*$"` ] ; then
+					echo ""
+					echo "${txtred}ERROR!${txtrst}"
+					echo ""
+					echo "     \"${txtylw}$EACH${txtrst}\" argument must be numeric in Mb!"
+					echo ""
+					echo "      i.e. 300 for 300Mb or 3000 for 3Gb"
+					echo ""
+					exit 1
+				else
+					break
+				fi
+				I=`expr $I - 1`
+			else
+				if [ "$ATTR_ARG" != "+" ] && [ "$ATTR_ARG" != "-" ] ; then
+					echo ""
+					echo "${txtred}ERROR!${txtrst}"
+					echo ""
+					echo "     \"${txtylw}$EACH${txtrst}\" attribute argument not valid!"
+					echo ""
+					echo "      i.e. + do add wright or - to remove it."
+					echo ""
+					exit 1
+				fi
+			fi
+		fi
+
+		I=`expr $I + 1`
+	done
+
+}
+
+tester(){
+	# Test attrs added with zmprov grr
+		attrs_added_to_grr
+
+		# Test attrs added with zimbraAdminConsoleUIComponents
+		attrs_added_to_ui
+
+		# Test attr zimbraIsDelegatedAdminAccount
+		attrs_added_to_admin
+
+		# Test attr zimbraDomainAdminMaxMailQuota
+		attrs_added_to_quota
+}
+
+attrs_added_to_grr(){
+	ATTRS_GRR="deleteAccount listAccount renameAccount setAccountPassword createAccount listDomain listAlias configureQuota"
+}
+
+attrs_added_to_ui(){
+	ATTRS_UI="accountListView aliasListView DLListView cartBlancheUI"
+}
+attrs_added_to_admin(){
+	ATTRS_MA1="zimbraIsDelegatedAdminAccount"
+}
+
+attrs_added_to_quota(){
+	ATTRS_MA2="zimbraDomainAdminMaxMailQuota"
+}
+
+attrs_is_odd(){
+	if [ "${ZM_ATTRS_ARRAY[0]}" = "zimbraDomainAdminMaxMailQuota" ] && [ "${ZM_ATTRS_ARRAY[1]}" = "+" ] ; then
+		if [ ! $(($ZM_ATTRS_COUNT % 3)) -eq 0 ] ; then
+			echo ""
+			echo "${txtred}ERROR!${txtrst}"
+			echo ""
+			echo "To add zimbraDomainAdminMaxMailQuota attribute must give 2 arguments."
+			echo "attribute followed by a + and size in Mb."
+			echo "i.e. zimbraDomainAdminMaxMailQuota + 200"
+			echo ""
+			echo "     -> $ZM_ATTRS"
+			echo ""
+			exit 1
+		fi
+	else
+		if [ ! $(($ZM_ATTRS_COUNT % 2)) -eq 0 ] ; then
+			echo ""
+			echo "${txtred}ERROR!${txtrst}"
+			echo ""
+			echo "Attributes for $ZM_USER are not odd."
+			echo "Every attribute must be followed by a + or -"
+			echo ""
+			echo "     -> $ZM_ATTRS"
+			echo ""
+			exit 1
+		fi
+	fi
+}
+
+attrs_to_add(){
+	
+	case $ATTR_TO_DEL in
+		admin)
+			$ZM_COMM ma $ZM_USER zimbraIsDelegatedAdminAccount TRUE
+		;;
+		domainAdminRights|domainAdminDomainRights|domainAdminDistributionListRights|configureQuota)
+			$ZM_COMM grr domain $ZM_DOM usr $ZM_USER $ATTR_TO_DEL
+		;;
+		zimbraDomainAdminMaxMailQuota)
+			$ZM_U_QUOTA_LIMIT=`expr ${ZM_ATTRS_ARRAY[2]} \* 1024 \* 1024`
+			$ZM_COMM ma $ZM_USER zimbraDomainAdminMaxMailQuota $ZM_U_QUOTA_LIMIT
+		;;
+	esac
+	$ZM_COMM fc server `zmhostname`
+
+}
+
+attrs_to_add_all(){
+	ZM_ALL_ATTRS1="$ZM_COMM ma $ZM_USER zimbraIsDelegatedAdminAccount TRUE"
+	ZM_ALL_ATTRS2="$ZM_COMM ma $ZM_USER zimbraAdminConsoleUIComponents accountListView zimbraAdminConsoleUIComponents aliasListView zimbraAdminConsoleUIComponents domainListView zimbraAdminConsoleUIComponents DLListView"
+	ZM_ALL_ATTRS3="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER domainAdminRights"
+	ZM_ALL_ATTRS4="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER domainAdminDomainRights"
+	ZM_ALL_ATTRS6="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER domainAdminDistributionListRights"
+	ZM_ALL_ATTRS7="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER configureQuota"
+	ZM_ALL_ATTRS8="$ZM_COMM ma $ZM_USER zimbraDomainAdminMaxMailQuota 2097152000"
+
+	#echo "$ZM_ALL_ATTRS1"
+	#$ZM_ALL_ATTRS1
+	#echo "$ZM_ALL_ATTRS2"
+	#$ZM_ALL_ATTRS2
+	#echo "$ZM_ALL_ATTRS3"
+	#$ZM_ALL_ATTRS3
+	#echo "$ZM_ALL_ATTRS4"
+	#$ZM_ALL_ATTRS4
+	#echo "$ZM_ALL_ATTRS5"
+	#$ZM_ALL_ATTRS5
+	#echo "$ZM_ALL_ATTRS6"
+	#$ZM_ALL_ATTRS6
+	#echo "$ZM_ALL_ATTRS7"
+	#$ZM_ALL_ATTRS7
+	#echo "$ZM_ALL_ATTRS8"
+	#$ZM_ALL_ATTRS8
+	$ZM_ALL_ATTRS1 ; $ZM_ALL_ATTRS2 ; $ZM_ALL_ATTRS3 ; $ZM_ALL_ATTRS4 ; $ZM_ALL_ATTRS5 ; $ZM_ALL_ATTRS6 ; $ZM_ALL_ATTRS7 ; $ZM_ALL_ATTRS8
+	$ZM_COMM fc server `zmhostname`
+}
+
+attrs_to_del(){
+	
+	case $ATTR_TO_DEL in
+		admin)
+			$ZM_COMM ma $ZM_USER zimbraIsDelegatedAdminAccount FALSE
+		;;
+		accountListView|aliasListView|DLListView|cartBlancheUI)
+			$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -$ATTR_TO_DEL
+		;;
+		zimbraDomainAdminMaxMailQuota)
+			$ZM_COMM ma $ZM_USER zimbraDomainAdminMaxMailQuota 1
+		;;
+	esac
+	$ZM_COMM fc server `zmhostname`
+
+}
+
+attrs_to_del_all(){
+	ZM_ALL_ATTRS1="$ZM_COMM ma $ZM_USER zimbraIsDelegatedAdminAccount FALSE"
+	ZM_ALL_ATTRS2="$ZM_COMM ma $ZM_USER zimbraAdminConsoleUIComponents -accountListView zimbraAdminConsoleUIComponents -aliasListView zimbraAdminConsoleUIComponents -domainListView zimbraAdminConsoleUIComponents -DLListView"
+	ZM_ALL_ATTRS3="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -domainAdminRights"
+	ZM_ALL_ATTRS4="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -domainAdminDomainRights"
+	ZM_ALL_ATTRS6="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -domainAdminDistributionListRights"
+	ZM_ALL_ATTRS7="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -configureQuota"
+	ZM_ALL_ATTRS8="$ZM_COMM ma $ZM_USER zimbraDomainAdminMaxMailQuota 1"
+
+	$ZM_ALL_ATTRS8 ; $ZM_ALL_ATTRS7 ; $ZM_ALL_ATTRS6 ; $ZM_ALL_ATTRS5 ; $ZM_ALL_ATTRS4 ; $ZM_ALL_ATTRS3 ; $ZM_ALL_ATTRS2 ; $ZM_ALL_ATTRS1
+}
+
+list_domains(){
+	zmprov -l gad
+}
+
+list_domain_users(){
+	zmprov -l gaa $ZM_DOM
+}
+
+list_domain_rights(){
+	zmprov gg -t domain $ZM_DOM
+}
+
+list_user_rights(){
+	zmprov gg -g usr $ZM_USER
+}
+
+test_user_exist(){
+	ZM_DOM=`echo $ZM_USER | cut -d\@ -f2`
+	TEST=`list_domain_users | grep -w ^${ZM_USER}$`
+	if [ "$TEST" != "" ] ; then
+		echo "exist"
+	else
+		echo "none"
+	fi
+}
+
+add_admin(){
+	USER_EXIST=`test_user_exist`
+	if [ "$USER_EXIST" = "none" ] ; then
+		Z_TMP_PASS="sem_kya_senha_123"
+		zmprov ca $ZM_USER $Z_TMP_PASS
+		echo ""
+		echo "Usuário $ZM_USER criado!"
+		echo "Senha: $Z_TMP_PASS"
+		echo ""
+	fi
+}
+
+teste() {
+
+	zmprov gar -c ALL
+	zmprov help right
+
+	zmprov grr anahuac.eu        usr admin@anahuac.eu        deleteAccount
+	zmprov grr prodepa.pa.gov.br usr admin@prodepa.pa.gov.br deleteAccount
+
+	zimbraDomainAdminMaxMailQuota
+
+	zmprov grr domain yourdomain.com usr user@yourdomain.com deleteAccount listAccount
+	zmprov grr domain yourdomain.com usr user@yourdomain.com renameAccount setAccountPassword
+	zmprov grr domain yourdomain.com usr user@yourdomain.com createAccount listDomain
+	zmprov grr domain yourdomain.com usr user@yourdomain.com listAlias configureQuota
+	zmprov grr domain yourdomain.com usr user@yourdomain.com set.account.zimbraAccountStatus set.account.sn
+	zmprov grr domain yourdomain.com usr user@yourdomain.com set.account.displayName set.account.zimbraPasswordMustChange
+}
+
+
+#################################################################################################
+#      ____    ____     ___     ____
+#     |       |    |   |   \   |
+#     |       |    |   |   |   |---
+#     |____   |____|   |___/   |____
+#
+#################################################################################################
+
+# No zimbra user? Exit
+if [ `whoami` != "zimbra" ] ; then
+	start_colors
+	clear
+	echo ""
+	echo ""
+	echo -e "\t${txtred} You MUST be zimbra user to run zadmin!  ${txtrst}"
+	echo ""
+	exit 1
+fi
+
+
+while [ $# -ne 0 ]; do
+	case $1 in
+	    -h|-help|--help)
+	      usage
+	      exit 0
+	      break
+	    ;;
+	    help)
+		H_OPTION="$2"
+		zmhelp
+		exit 0 
+	    ;;
+	    -aa)
+		ZM_USER="$2"
+		add_admin
+		exit 0
+	    ;;
+	    -ld)
+		list_domains
+		exit 0
+	    ;;
+	    -lu)
+		ZM_DOM="$2"
+		list_domain_users
+		exit 0
+	    ;;
+	    -lr)
+		ZM_DOM="$2"
+		list_domain_rights
+		exit 0
+	    ;;
+	    -lur)
+		ZM_USER="$2"
+		list_user_rights
+		exit 0
+	    ;;
+	    -v)
+		echo $0 Version - $VERSION 
+		exit 0
+	    ;;
+	    *)
+	      ZM_DOM="$1"
+	      ZM_USER="$2"
+	      ZM_ATTRS=`echo $@ | cut -d" " -f3-`
+
+		if [ ! -z "$ZM_DOM" ] && [ ! -z "$ZM_USER" ] && [ ! -z "$ZM_ATTRS" ] ; then
+			dealAttrs
+		fi
+
+		exit 0
+	    ;;
+	esac
+done
+
+usage
+exit 0

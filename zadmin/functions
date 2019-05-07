@@ -1,0 +1,207 @@
+#! /bin/bash
+
+usage() {
+  start_colors
+  clear
+  echo "$0 -h | $0 domain name@domain [attr1 value1 [attr2 value2...]]"
+  echo ""
+  echo "-h         This very message"
+  echo ""
+  echo ""
+  echo "* <domain> admin for this domain"
+  echo "* <name@domain> is the account. It will be created if not exists"
+  echo "* attrN is about the privileges to be given, as follows: "
+  echo ""
+  echo -e "\tATTR"
+  echo -e "\t---------------------------------------"
+
+  for EACH in $ZM_ADMIN_ATTRS ; do
+	echo -e "\t${txtylw}$EACH${txtrst} [ +|- ]"
+  done
+
+  echo ""
+  echo ""
+  echo "   i.e.: zadminfse kyahosting.com admin@kyahoting.com listAccount + renameAccount +"
+  echo ""
+  echo ""
+  echo ""
+}
+
+start_colors(){
+	txtred=$(tput setaf 1) # Red
+	txtgrn=$(tput setaf 2) # Green
+	txtylw=$(tput setaf 3) # Yellow
+	txtblu=$(tput setaf 4) # Blue
+	txtpur=$(tput setaf 5) # Purple
+	txtcyn=$(tput setaf 6) # Cyan
+	txtwht=$(tput setaf 7) # White
+	txtrst=$(tput sgr0) # Text reset
+}
+
+# $ZM_DOM $ZM_USER $ZM_ATTRS
+dealAttrs() {
+
+	ZM_COMM="/opt/zimbra/bin/zmprov"
+	#ZM_ATTRS=`echo $ZM_ATTRS | cut -d" " -f3-`
+	ZM_ATTRS="$ZM_ATTRS"
+	ZM_ATTRS_ARRAY=( $ZM_ATTRS )
+	ZM_ATTRS_COUNT=`echo ${#ZM_ATTRS_ARRAY[*]}`
+
+	# Gain text colors
+	start_colors
+
+	# Check if attributes are odd
+	attrs_is_odd
+
+	# Validating attributes
+	attrs_validate
+	exit
+
+	# Add all privileges
+	if [ "${ZM_ATTRS_ARRAY[0]}" = "all" ] && [ "${ZM_ATTRS_ARRAY[1]}" = "+" ] ; then
+		su zimbra -c"`attrs_to_add_all`"
+	fi
+
+	# Remove all privileges
+	if [ "${ZM_ATTRS_ARRAY[0]}" = "all" ] && [ "${ZM_ATTRS_ARRAY[1]}" = "-" ] ; then
+		su zimbra -c"`attrs_to_del_all`"
+	fi
+
+}
+
+attrs_validate(){
+
+	ZM_ADMIN_ATTRS_PLUS="$ZM_ADMIN_ATTRS all"
+
+	# Test if given attrs are in the list, if anyone is not, abort
+	I="1"
+	for EACH in $ZM_ATTRS ; do
+		if [ $(($I % 2)) -ne 0 ] ; then
+			TEST=`echo $ZM_ADMIN_ATTRS_PLUS | egrep -w "$EACH"`
+			if [ -z "$TEST" ] ; then
+				echo ""
+				echo "${txtred}ERROR${txtrst} - Attribute not valid -> ${txtred}$EACH${txtrst}"
+				echo ""
+				exit 1
+			fi
+
+			ATTR_ARG=${ZM_ATTRS_ARRAY[$I]}
+			# Test if the argument is + or -. Except to zimbraDomainAdminMaxMailQuota - numeric
+			if [ "$EACH" = "zimbraDomainAdminMaxMailQuota" ] ; then
+				
+				if [ ! `echo ${ZM_ATTRS_ARRAY[$I]} | grep "^[ [:digit:] ]*$"` ] ; then
+					echo ""
+					echo "${txtred}ERROR!${txtrst}"
+					echo ""
+					echo "     \"${txtylw}$EACH${txtrst}\" argument must be numeric in Mb!"
+					echo ""
+					echo "      i.e. 300 for 300Mb or 3000 for 3Gb"
+					echo ""
+					exit 1
+				fi
+			else
+				if [ "$ATTR_ARG" != "+" ] && [ "$ATTR_ARG" != "-" ] ; then
+					echo ""
+					echo "${txtred}ERROR!${txtrst}"
+					echo ""
+					echo "     \"${txtylw}$EACH${txtrst}\" attribute argument not valid!"
+					echo ""
+					echo "      i.e. + do add wright or - to remove it."
+					echo ""
+					exit 1
+				fi
+			fi
+		fi
+
+		I=`expr $I + 1`
+	done
+
+}
+
+tester(){
+	# Test attrs added with zmprov grr
+		attrs_added_to_grr
+
+		# Test attrs added with zimbraAdminConsoleUIComponents
+		attrs_added_to_ui
+
+		# Test attr zimbraIsDelegatedAdminAccount
+		attrs_added_to_admin
+
+		# Test attr zimbraDomainAdminMaxMailQuota
+		attrs_added_to_quota
+}
+
+attrs_added_to_grr(){
+	ATTRS_GRR="deleteAccount listAccount renameAccount setAccountPassword createAccount listDomain listAlias configureQuota"
+}
+
+attrs_added_to_ui(){
+	ATTRS_UI="accountListView aliasListView DLListView cartBlancheUI"
+}
+attrs_added_to_admin(){
+	ATTRS_MA1="zimbraIsDelegatedAdminAccount"
+}
+
+attrs_added_to_quota(){
+	ATTRS_MA2="zimbraDomainAdminMaxMailQuota"
+}
+
+attrs_is_odd(){
+	if [ ! $(($ZM_ATTRS_COUNT % 2)) -eq 0 ] ; then
+		echo ""
+		echo "${txtred}ERROR!${txtrst}"
+		echo ""
+		echo "Attributes for $ZM_USER are not odd."
+		echo "Every attribute must be followed by a + or -"
+		echo ""
+		echo "     -> $ZM_ATTRS"
+		echo ""
+		exit 1
+	fi
+}
+
+attrs_to_add_all(){
+	ZM_ALL_ATTRS1="$ZM_COMM ma $ZM_USER zimbraIsDelegatedAdminAccount TRUE"
+	ZM_ALL_ATTRS2="$ZM_COMM ma $ZM_USER zimbraAdminConsoleUIComponents accountListView zimbraAdminConsoleUIComponents aliasListView zimbraAdminConsoleUIComponents DLListView zimbraAdminConsoleUIComponents cartBlancheUI"
+	ZM_ALL_ATTRS3="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER deleteAccount listAccount"
+	ZM_ALL_ATTRS4="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER renameAccount setAccountPassword"
+	ZM_ALL_ATTRS5="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER createAccount listDomain"
+	ZM_ALL_ATTRS6="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER listAlias configureQuota"
+	ZM_ALL_ATTRS7="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER set.account.zimbraAccountStatus set.account.sn"
+	ZM_ALL_ATTRS8="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER set.account.displayName set.account.zimbraPasswordMustChange"
+	ZM_ALL_ATTRS9="$ZM_COMM ma $ZM_USER zimbraDomainAdminMaxMailQuota 0"
+
+	echo "$ZM_ALL_ATTRS1 ; $ZM_ALL_ATTRS2 ; $ZM_ALL_ATTRS3 ; $ZM_ALL_ATTRS4 ; $ZM_ALL_ATTRS5 ; $ZM_ALL_ATTRS6 ; $ZM_ALL_ATTRS7 ; $ZM_ALL_ATTRS8 ; $ZM_ALL_ATTRS9"
+	
+}
+
+attrs_to_del_all(){
+	ZM_ALL_ATTRS1="$ZM_COMM ma $ZM_USER zimbraIsDelegatedAdminAccount FALSE"
+	ZM_ALL_ATTRS2="$ZM_COMM ma $ZM_USER zimbraAdminConsoleUIComponents -accountListView zimbraAdminConsoleUIComponents -aliasListView zimbraAdminConsoleUIComponents -DLListView zimbraAdminConsoleUIComponents -cartBlancheUI"
+	ZM_ALL_ATTRS3="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -deleteAccount -listAccount"
+	ZM_ALL_ATTRS4="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -renameAccount -setAccountPassword"
+	ZM_ALL_ATTRS5="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -createAccount -listDomain"
+	ZM_ALL_ATTRS6="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -listAlias -configureQuota"
+	ZM_ALL_ATTRS7="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -set.account.zimbraAccountStatus -set.account.sn"
+	ZM_ALL_ATTRS8="$ZM_COMM grr domain $ZM_DOM usr $ZM_USER -set.account.displayName -set.account.zimbraPasswordMustChange"
+	ZM_ALL_ATTRS9="$ZM_COMM ma $ZM_USER zimbraDomainAdminMaxMailQuota 0"
+
+	echo "$ZM_ALL_ATTRS9 ; $ZM_ALL_ATTRS8 ; $ZM_ALL_ATTRS7 ; $ZM_ALL_ATTRS6 ; $ZM_ALL_ATTRS5 ; $ZM_ALL_ATTRS4 ; $ZM_ALL_ATTRS3 ; $ZM_ALL_ATTRS2 ; $ZM_ALL_ATTRS1"
+}
+
+teste() {
+
+	zmprov help right
+
+	zmprov grr prodepa.pa.gov.br usr admin@prodepa.pa.gov.br deleteAccount
+
+	zimbraDomainAdminMaxMailQuota
+
+	zmprov grr domain yourdomain.com usr user@yourdomain.com deleteAccount listAccount
+	zmprov grr domain yourdomain.com usr user@yourdomain.com renameAccount setAccountPassword
+	zmprov grr domain yourdomain.com usr user@yourdomain.com createAccount listDomain
+	zmprov grr domain yourdomain.com usr user@yourdomain.com listAlias configureQuota
+	zmprov grr domain yourdomain.com usr user@yourdomain.com set.account.zimbraAccountStatus set.account.sn
+	zmprov grr domain yourdomain.com usr user@yourdomain.com set.account.displayName set.account.zimbraPasswordMustChange
+}
