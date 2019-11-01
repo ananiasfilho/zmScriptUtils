@@ -14,7 +14,7 @@ choose_domain() {
 	clear
 	if [ ! -z '$1' ] ; then
 		if [ "$1" == "fail" ] ; then 
-			echo "     !!! Domain $USER_EMAIL not exist !!!"
+			echo "     !!! Domain $EMAIL_USER not exist !!!"
 			echo ""
 		fi
 	fi
@@ -32,10 +32,10 @@ choose_user() {
 		fi
 	fi
 	echo "#########################################################"
-	read -p '#     Type user email: ' USER_EMAIL
+	read -p '#     Type user email: ' EMAIL_USER
 
-#	echo "zmprov gaa $DOMAIN |grep -E ^$USER_EMAIL "
-	USER_CHECK=`zmprov -l gaa $DOMAIN |grep -E ^$USER_EMAIL |wc -l`
+#	echo "zmprov gaa $DOMAIN |grep -E ^$EMAIL_USER "
+	USER_CHECK=`zmprov -l gaa $DOMAIN |grep -E ^$EMAIL_USER |wc -l`
 }
 delegateAdmin() {
 
@@ -82,7 +82,7 @@ if [ $USER_CHECK -ne 1 ] ; then
 fi
 clear
 echo ""
-echo "     Applying admin privileges to $USER_EMAIL into domain $DOMAIN"
+echo "     Applying admin privileges to $EMAIL_USER into domain $DOMAIN"
 read -r -p "     Are you sure? (Y/n) " ACCEPT_OPTION
 case $ACCEPT_OPTION in
 	[yY]* )
