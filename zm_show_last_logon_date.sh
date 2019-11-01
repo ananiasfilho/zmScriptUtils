@@ -1,4 +1,13 @@
-#!/bin/bash
+#! /bin/bash -x
+##################################################################################
+# Creator: @ananiasfilho kmee.com.br
+# Maintainer:: @anahuac kyahosting.com.br
+#
+# Version: 0.0.4
+# License: GNU General Public License v3.0
+# https://github.com/ananiasfilho/zm-fix-zpush-lets/blob/master/LICENSE 
+##################################################################################
+
 ### DEFINIR DATA NO SEGUINTE FORMATO: YYYYMMDDhhmmss (14 caracteres)
 ### Exemplor de 01 de outubro de 2019 a partir da 00:00hs - 2019 10 01 00 00 00
 ### Basta remover os espacos
